@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["cedarpy==4.12.2", "cedarpy-integrations==0.1.0a0"]
+# dependencies = ["cedarpy==4.12.2", "cedarpy-integrations==0.1.0"]
 # ///
 """A single owner-read policy, authored in Python and evaluated by Cedar."""
 

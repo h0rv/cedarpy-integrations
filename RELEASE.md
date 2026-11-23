@@ -8,7 +8,7 @@ The distribution depends on released `cedarpy`. The SQLAlchemy reader under `pac
 
 ## Publish to PyPI
 
-The first release is `0.1.0a0`. For each release, set the version in the root `pyproject.toml` and update the version pins in `examples/sealed_document.py` and `examples/pst_policy.py`. Restrict the GitHub environment `pypi` to the `main` branch. Configure a PyPI trusted publisher for `cedarpy-integrations` with the repository `h0rv/cedarpy-integrations`, workflow filename `publish.yml`, and environment `pypi`. To publish, run the **Publish to PyPI** workflow manually (`workflow_dispatch`) on `main`. It builds the root project, checks the quickstart against the wheel, and publishes the tested wheel and its source archive.
+Set the version in `pyproject.toml` and both example scripts (`examples/sealed_document.py` and `examples/pst_policy.py`). Push the tested commit to `main`, then publish a GitHub release with a matching tag, such as `v0.1.0`. Publishing the release triggers `publish.yml`; pushing a commit, pushing a tag alone, or saving a draft does not. The workflow checks the tag against the project version, verifies that the commit is on `main`, runs the quickstart against the built wheel, and uploads the wheel and source archive to PyPI. The trusted publisher uses the GitHub environment `pypi`, which allows release tags matching `v*`.
 
 ## First service rollout
 

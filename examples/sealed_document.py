@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["cedarpy-integrations==0.1.0a0", "cedarpy==4.12.2"]
+# dependencies = ["cedarpy-integrations==0.1.0", "cedarpy==4.12.2"]
 # ///
 """Can Alice read a document she owns after she seals it?"""
 

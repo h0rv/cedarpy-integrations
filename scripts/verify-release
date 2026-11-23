@@ -9,19 +9,20 @@ export PATH="$HOME/.cargo/bin:$PATH"
 export UV_NO_CONFIG=1 UV_DEFAULT_INDEX=https://pypi.org/simple
 # uv builds the wheel from the sdist, not directly from the checkout.
 uv build --out-dir "$out"
-wheel="$out/cedarpy_integrations-0.1.0a0-py3-none-any.whl"
+wheels=("$out"/*.whl)
+wheel=${wheels[0]}
 for env in base asgi fastapi sql; do uv venv --python 3.13 "$work/$env"; done
 base="$work/base/bin/python"
 asgi="$work/asgi/bin/python"
 fastapi="$work/fastapi/bin/python"
 sql="$work/sql/bin/python"
-"$base" -I - "$wheel" "$out/cedarpy_integrations-0.1.0a0.tar.gz" <<'PY'
+"$base" -I - "$wheel" "$out"/*.tar.gz <<'PY'
 import sys, tarfile, zipfile
 from pathlib import PurePosixPath
 modules = {'cedarpy_policy', 'cedarpy_web', 'cedarpy_asgi', 'cedarpy_wsgi'}
 with zipfile.ZipFile(sys.argv[1]) as wheel:
     files = set(wheel.namelist())
-    assert {p.split('/')[0] for p in files} == modules | {'cedarpy_integrations-0.1.0a0.dist-info'}
+    assert {p.split('/')[0] for p in files} == modules | {next(p.split('/')[0] for p in files if p.endswith('.dist-info/METADATA'))}
     assert {f'{m}/py.typed' for m in modules} <= files
 with tarfile.open(sys.argv[2]) as archive:
     for member in archive.getmembers():
