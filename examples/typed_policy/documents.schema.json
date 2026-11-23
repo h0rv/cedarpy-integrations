@@ -1,0 +1,19 @@
+{
+  "": {
+    "entityTypes": {
+      "User": {},
+      "Document": {
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "owner": {"type": "Entity", "name": "User"},
+            "state": {"type": "String"}
+          }
+        }
+      }
+    },
+    "actions": {
+      "read": {"appliesTo": {"principalTypes": ["User"], "resourceTypes": ["Document"]}}
+    }
+  }
+}

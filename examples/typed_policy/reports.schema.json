@@ -1,0 +1,22 @@
+{
+  "": {
+    "entityTypes": {
+      "User": {
+        "shape": {
+          "type": "Record",
+          "attributes": {"can_export": {"type": "Boolean"}}
+        }
+      },
+      "Service": {}
+    },
+    "actions": {
+      "export": {
+        "appliesTo": {
+          "principalTypes": ["User"],
+          "resourceTypes": ["Service"],
+          "context": {"type": "Record", "attributes": {"stepped_up": {"type": "Boolean"}}}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,63 @@
+---
+import type { MarkdownHeading } from 'astro';
+import { getNavigation, home } from './guides';
+import './site.css';
+
+interface Props { title: string; current?: string; headings: MarkdownHeading[] }
+const { title, current = '', headings } = Astro.props;
+const groups = await getNavigation();
+const section = groups.find(group => group.items.some(item => item.id === current))?.label ?? 'Guide';
+// Use real Markdown slugs (including Astro's suffix for repeated headings).
+const outline: { heading: MarkdownHeading; children: MarkdownHeading[] }[] = [];
+for (const heading of headings) {
+  if (heading.depth === 2) outline.push({ heading, children: [] });
+  if (heading.depth === 3) {
+    const parent = outline.at(-1);
+    if (parent?.heading.depth === 2) parent.children.push(heading);
+    else outline.push({ heading, children: [] });
+  }
+}
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>{title} | cedarpy integrations</title>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="masthead"><div class="wrap header-inner">
+      <a class="wordmark" href={home}>cedarpy <span>integrations</span></a>
+      <nav aria-label="Project"><a href={home}>Quickstart</a><a href={`${home}#integrations`}>Integrations</a></nav>
+    </div></header>
+    <div class="wrap shell">
+      <div class="sidebar">
+        {(['div', 'details'] as const).map(Tag => (
+          <Tag class={Tag === 'details' ? 'mobile-menu' : 'desktop-menu'}>
+            {Tag === 'details' && <summary>Browse guides</summary>}
+            <nav aria-label="Documentation">
+              {groups.map(group => <div class="nav-group">
+                <p class="rail-title">{group.label}</p>
+                <ul aria-label={group.label}>{group.items.map(item => <li><a href={item.href} aria-current={current === item.id ? 'page' : undefined}>{item.label}</a></li>)}</ul>
+              </div>)}
+            </nav>
+          </Tag>
+        ))}
+      </div>
+      <main id="main" tabindex="-1"><article>
+        <p class="eyebrow">{section}</p>
+        <h1>{title}</h1>
+        <slot />
+      </article></main>
+      {outline.length > 0 && <nav class="toc" aria-label="On this page">
+        <p class="rail-title">On this page</p>
+        <ul>{outline.map(({ heading, children }) => <li>
+          <a href={`#${heading.slug}`}>{heading.text}</a>
+          {children.length > 0 && <ul>{children.map(child => <li><a href={`#${child.slug}`}>{child.text}</a></li>)}</ul>}
+        </li>)}</ul>
+      </nav>}
+    </div>
+  </body>
+</html>

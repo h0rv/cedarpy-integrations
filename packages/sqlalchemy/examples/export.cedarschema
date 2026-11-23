@@ -1,0 +1,5 @@
+entity User;
+entity Document = { state: String, owner: User };
+action "export" appliesTo {
+    principal: [User], resource: [Document], context: { stepped_up: Bool }
+};

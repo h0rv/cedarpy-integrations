@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+# FastAPI's TestClient uses httpx2 starting with Starlette 1.2.
+uv --no-config run --default-index https://pypi.org/simple --no-project --isolated --python 3.13 \
+  --with '.[fastapi]' \
+  --with flask --with django --with 'starlette>=1.2' --with 'httpx2>=2,<3' --with pytest \
+  python -m pytest -q tests/frameworks packages/asgi/tests "$@"

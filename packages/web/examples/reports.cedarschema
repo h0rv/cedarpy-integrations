@@ -1,0 +1,7 @@
+entity User { can_export: Bool };
+entity Service;
+action "export" appliesTo {
+    principal: [User],
+    resource: [Service],
+    context: { stepped_up: Bool }
+};

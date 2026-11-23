@@ -1,0 +1,36 @@
+---
+import { Code } from 'astro:components';
+import Layout from '../Layout.astro';
+import { guideHref } from '../guides';
+import cedar from '../../grammars/vscode-cedar/cedar.tmLanguage.json';
+import script from '../../../examples/sealed_document.py?raw';
+import demo from '../snippets/document-demo.txt?raw';
+const policyExample = script.slice(script.indexOf('from enum import'), script.indexOf('if __name__')).trim();
+const boundary = demo.lastIndexOf('\n\n');
+const themes = { light: 'github-light', dark: 'github-dark' } as const;
+const headings = [
+  { depth: 2, slug: 'first-check', text: 'Seal the document' },
+  { depth: 2, slug: 'cedar', text: 'Inspect the generated Cedar' },
+  { depth: 2, slug: 'integrations', text: 'Use the policy in an application' },
+];
+---
+<Layout title="Write Cedar policies with your Python types and enums" headings={headings}>
+  <p class="lead">Alice owns a document. She can read her draft, but even the owner cannot read it once it is sealed. Write that rule with the app's own <code>DocumentState</code> enum. Cedar makes the decision.</p>
+  <h2 id="first-check">Seal the document</h2>
+  <p>Save <a download="sealed_document.py" href={`${import.meta.env.BASE_URL}sealed_document.py`}>sealed_document.py</a> and run it. The script declares its own dependencies.</p>
+  <Code lang="sh" themes={themes} code="uv run sealed_document.py" />
+  <figure><figcaption>The policy in sealed_document.py</figcaption><Code lang="python" themes={themes} code={policyExample} /></figure>
+  <p>Keep the caller, owner, and document ID the same. Change only the state:</p>
+  <pre><samp>{demo.slice(boundary).trim()}</samp></pre>
+  <h2 id="cedar">Inspect the generated Cedar</h2>
+  <p><code>read</code> is a native <code>cedarpy.PolicySet</code>. Here is its formatted output, not a second policy to maintain:</p>
+  <Code lang={{ ...cedar, name: 'cedar' }} themes={themes} code={demo.slice(0, boundary).trimEnd()} />
+  <p>The <a href={guideHref('policies')}>shared policy guide</a> shows where the typed references come from. Prefer handwritten rules? Use <a href={guideHref('choosing-policy')}>Cedar files instead</a>.</p>
+  <h2 id="integrations">Use the policy in an application</h2>
+  <p>On Python 3.13 or later, use <code>uv add cedarpy-integrations</code> for typed policies, shared web permissions, and WSGI. For ASGI use <code>uv add 'cedarpy-integrations[asgi]'</code>. For FastAPI use <code>uv add 'cedarpy-integrations[fastapi]'</code>.</p>
+  <ul>
+    <li><a href={guideHref('sqlalchemy')}>SQLAlchemy</a> (source only): read one authorized document or a page of results.</li>
+    <li><a href={guideHref('fastapi')}>FastAPI</a>, <a href={guideHref('flask')}>Flask</a>, or <a href={guideHref('django')}>Django</a>: check whether a caller may start an export. That permission does not grant access to the exported rows.</li>
+    <li><a href={guideHref('cedarpy')}>Python bindings</a>: call Cedar directly without a framework or database.</li>
+  </ul>
+</Layout>

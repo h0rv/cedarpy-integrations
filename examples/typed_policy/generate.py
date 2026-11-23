@@ -1,0 +1,155 @@
+"""Generate references for the app's two single-action Cedar JSON schemas."""
+
+import argparse
+import json
+import keyword
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from cedarpy import Schema
+
+HERE = Path(__file__).parent
+
+
+@dataclass(frozen=True)
+class Binding:
+    schema: Path
+    action: str
+    python_name: str
+    resource_id: str | None = None
+
+
+DOCUMENTS = Binding(HERE / "documents.schema.json", "read", "read_document")
+REPORTS = Binding(HERE / "reports.schema.json", "export", "start_export", "reports")
+
+
+def attributes(record: object) -> dict[str, object]:
+    match record:
+        case {"type": "Record", "attributes": dict() as attrs, **extra}:
+            if extra.pop("additionalAttributes", False) is False and not extra:
+                return attrs
+    raise ValueError("Expected an inline, closed Record with attributes")
+
+
+def entity_attributes(entity: object) -> dict[str, object]:
+    if entity == {}:
+        return {}
+    match entity:
+        case {"shape": shape, **extra} if not extra:
+            return attributes(shape)
+        case _:
+            raise ValueError("Expected only an optional inline entity shape")
+
+
+def field(
+    root: str, owner: str, name: str, descriptor: object, scope: str, types: set[str]
+) -> str:
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", name) or keyword.iskeyword(name):
+        raise ValueError(f"Unsupported Python field name {name!r}")
+    if not isinstance(descriptor, dict) or descriptor.get("required", True) is not True:
+        raise ValueError(f"Expected a required field at {owner}.{name}")
+    kind = {k: v for k, v in descriptor.items() if k != "required"}
+    # This domain binding is app configuration, not an enum inferred from Cedar.
+    if (root, owner, name) == ("resource", "Document", "state"):
+        if kind != {"type": "String"}:
+            raise ValueError("Document.state must be a String to bind DocumentState")
+        return f"_api.enum_field({scope}, {name!r}, DocumentState)"
+    match kind:
+        case {"type": "Entity", "name": str() as target, **extra} if (
+            not extra and root == "resource" and target in types
+        ):
+            return f"_api.entity_field({scope}, {name!r}, {target!r})"
+        case {"type": "Boolean", **extra} if not extra:
+            return f"_api.bool_field({scope}, {root!r}, {name!r})"
+        case _:
+            raise ValueError(f"Unsupported field {owner}.{name}: {descriptor!r}")
+
+
+def render_action(binding: Binding, source: str) -> str:
+    Schema.from_json_str(source)  # Cedar checks names and resolves entity references.
+    match json.loads(source):
+        case {
+            "": {
+                "actions": dict() as actions,
+                "entityTypes": dict() as entities,
+                **namespace,
+            },
+            **others,
+        } if not others and not namespace and set(actions) == {binding.action}:
+            pass
+        case _:
+            raise ValueError("Expected one unqualified action and its entity types")
+    match actions[binding.action]:
+        case {
+            "appliesTo": {
+                "principalTypes": [str() as principal],
+                "resourceTypes": [str() as resource],
+                **options,
+            },
+            **extra,
+        } if not extra and options.keys() <= {"context"}:
+            pass
+        case _:
+            raise ValueError(
+                "Expected one principal type, one resource type and optional context"
+            )
+    types = {principal, resource}
+    if set(entities) != types:
+        raise ValueError("Only the principal and resource entity types are supported")
+
+    cls = "_" + binding.python_name.title().replace("_", "")
+    scope = f"_{binding.python_name}_scope"
+    lines = [
+        f"{scope} = _api.Scope({binding.action!r}, {principal!r}, {resource!r}, {binding.resource_id!r})"
+    ]
+    members = [f"    scope = {scope}"]
+    for root, owner, attrs in (
+        ("principal", principal, entity_attributes(entities[principal])),
+        ("resource", resource, entity_attributes(entities[resource])),
+        (
+            "context",
+            "context",
+            attributes(options["context"]) if "context" in options else {},
+        ),
+    ):
+        if not attrs:
+            if root == "principal":
+                members.append(f"    principal = _api.entity_principal({scope})")
+            continue
+        group = cls + root.title()
+        lines.extend(["", "", f"class {group}:"])
+        for name, descriptor in sorted(attrs.items()):
+            expr = field(root, owner, name, descriptor, scope, types)
+            lines.append(f"    {name} = {expr}")
+        members.append(f"    {root} = {group}()")
+    lines.extend(
+        ["", "", f"class {cls}:", *members, "", "", f"{binding.python_name} = {cls}()"]
+    )
+    return "\n".join(lines)
+
+
+def render() -> str:
+    header = (
+        "# Generated by examples.typed_policy.generate. Do not edit.\n"
+        "import cedarpy_policy as _api\n\n"
+        "from examples.typed_policy.domain import DocumentState\n"
+    )
+    actions = [render_action(b, b.schema.read_text()) for b in (DOCUMENTS, REPORTS)]
+    return header + "\n" + "\n\n\n".join(actions) + "\n"
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="check the committed references instead of printing them",
+    )
+    if parser.parse_args().check:
+        if (HERE / "generated.py").read_bytes() != render().encode():
+            raise SystemExit(
+                "generated.py is stale. Regenerate it with python -m examples.typed_policy.generate"
+            )
+    else:
+        print(render(), end="")

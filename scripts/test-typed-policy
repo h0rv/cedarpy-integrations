@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+unset PYTHONPATH PYTHONHOME VIRTUAL_ENV
+export PYTHONDONTWRITEBYTECODE=1 UV_DEFAULT_INDEX=https://pypi.org/simple
+
+# The drift check uses the checkout's existing cedarpy and never resolves dependencies.
+if [[ ${1:-} == --check-generated ]]; then
+    exec .venv/bin/python -m examples.typed_policy.generate --check
+fi
+work=$(mktemp -d "${TMPDIR:-/tmp}/typed-policy.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+uv --no-config build --wheel . --out-dir "$work/dist"
+uv --no-config venv --python 3.13 "$work/env"
+python="$work/env/bin/python"
+uv --no-config pip install --python "$python" \
+    --only-binary :all: "$work"/dist/*.whl cedarpy==4.12.2 pytest==9.2.0 ty==0.0.107
+"$python" -m examples.typed_policy.generate --check
+cp examples/sealed_document.py "$work/"
+(cd "$work" && uv --no-config run --python 3.13 --find-links "$work/dist" sealed_document.py) > "$work/document-demo.txt"
+diff -u docs/src/snippets/document-demo.txt "$work/document-demo.txt"
+"$python" -m pytest -q packages/policy/tests examples/typed_policy/test_policy.py
+check=("$work/env/bin/ty" check --python "$python" --python-version 3.13 --error-on-warning)
+"${check[@]}" src/cedarpy_policy packages/policy/tests examples/typed_policy examples/sealed_document.py examples/report_export_policy.py examples/pst_policy.py
+
+expect_diagnostic() {
+    local status=0 output
+    output=$("${check[@]}" --extra-search-path "$PWD" --output-format concise --color never "$work/typo.py" 2>&1) || status=$?
+    printf '%s\n' "$output"
+    [[ $status == 1 && $output == *"error[$1]"*"$2"* && $output == *'Found 1 diagnostic'* ]]
+}
+
+# Low-level constructors take Cedar nodes, not Python boolean values.
+printf '%s\n' 'from cedarpy_policy import nodes' 'nodes.and_(True, nodes.context)' > "$work/typo.py"
+expect_diagnostic invalid-argument-type 'Literal[True]'
+
+# Mutate copies of the actual policy, so ty checks exactly the public authoring surface.
+for pair in owner:owenr SEALED:SEAELD; do
+    good=${pair%:*}; bad=${pair#*:}
+    "$python" -c 'import pathlib, sys; s = pathlib.Path("examples/typed_policy/documents.py").read_text(); assert s.count("."+sys.argv[1]) == 1; print(s.replace("."+sys.argv[1], "."+sys.argv[2]))' "$good" "$bad" > "$work/typo.py"
+    expect_diagnostic missing-attribute "$bad"
+done
+
+for expr in 'action.resource.owner == "alice"' 'action.resource.state == "sealed"' \
+            'condition == True' 'action.resource.owner != action.principal' 'not condition'; do
+    printf '%s\n' 'from cedarpy_policy import policy' \
+        'from examples.typed_policy.generated import read_document as action' \
+        'condition = action.resource.owner == action.principal' \
+        "policy(action, permit_when=$expr)" > "$work/typo.py"
+    expect_diagnostic invalid-argument-type 'Expected `Condition`, found `bool`'
+done

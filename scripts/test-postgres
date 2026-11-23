@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Disposable cluster. Never uses a developer's running server or credentials.
+set -eu
+cd "$(dirname "$0")/.."
+pgbin=$(pg_config --bindir)
+work=$(mktemp -d /tmp/cedar-pg.XXXXXX)
+cleanup() {
+  "$pgbin/pg_ctl" -D "$work/data" -m immediate -w stop >/dev/null 2>&1 || true
+  rm -rf "$work"
+}
+trap cleanup EXIT
+"$pgbin/initdb" -D "$work/data" -U cedar_test --encoding=UTF8 --no-locale -A trust >/dev/null
+"$pgbin/pg_ctl" -D "$work/data" -l "$work/log" -o "-k $work -c listen_addresses=''" -w start >/dev/null
+export CEDAR_TEST_PG="postgresql+psycopg://cedar_test@/postgres?host=$work"
+# Only the private reader comes from source; public modules come from the installation.
+export PYTHONPATH="$PWD/packages/sqlalchemy/src${PYTHONPATH:+:$PYTHONPATH}"
+"${PYTHON:-.venv/bin/python}" -m pytest -q packages/sqlalchemy/tests/test_postgres.py "$@"

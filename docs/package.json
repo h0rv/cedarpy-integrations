@@ -1,0 +1,14 @@
+{
+  "name": "cedarpy-integration-docs",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@11.19.1",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "devDependencies": {
+    "astro": "7.4.13"
+  }
+}

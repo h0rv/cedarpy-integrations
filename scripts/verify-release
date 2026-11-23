@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+out=$(mktemp -d "${TMPDIR:-/tmp}/cedar-dist.XXXXXX")
+work=$(mktemp -d "${TMPDIR:-/tmp}/cedar-test.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+unset PYTHONPATH PYTHONHOME CEDAR_TEST_PG
+export PATH="$HOME/.cargo/bin:$PATH"
+export UV_NO_CONFIG=1 UV_DEFAULT_INDEX=https://pypi.org/simple
+# uv builds the wheel from the sdist, not directly from the checkout.
+uv build --out-dir "$out"
+wheel="$out/cedarpy_integrations-0.1.0a0-py3-none-any.whl"
+for env in base asgi fastapi sql; do uv venv --python 3.13 "$work/$env"; done
+base="$work/base/bin/python"
+asgi="$work/asgi/bin/python"
+fastapi="$work/fastapi/bin/python"
+sql="$work/sql/bin/python"
+"$base" -I - "$wheel" "$out/cedarpy_integrations-0.1.0a0.tar.gz" <<'PY'
+import sys, tarfile, zipfile
+from pathlib import PurePosixPath
+modules = {'cedarpy_policy', 'cedarpy_web', 'cedarpy_asgi', 'cedarpy_wsgi'}
+with zipfile.ZipFile(sys.argv[1]) as wheel:
+    files = set(wheel.namelist())
+    assert {p.split('/')[0] for p in files} == modules | {'cedarpy_integrations-0.1.0a0.dist-info'}
+    assert {f'{m}/py.typed' for m in modules} <= files
+with tarfile.open(sys.argv[2]) as archive:
+    for member in archive.getmembers():
+        if member.isfile():
+            parts = PurePosixPath(member.name).parts[1:]
+            assert parts in [('LICENSE',), ('README.md',), ('PKG-INFO',), ('pyproject.toml',), ('pyproject.toml.orig',)] or (
+                len(parts) >= 3 and parts[0] == 'src' and parts[1] in modules
+            ), member.name
+PY
+uv pip install --python "$base" "$wheel"
+"$base" -Ic 'from importlib.util import find_spec; from importlib.metadata import distribution; import cedarpy_policy, cedarpy_web; from cedarpy_wsgi import require_authorization; assert all(find_spec(p) is None for p in ("starlette", "anyio", "fastapi", "sqlalchemy", "cedarpy_sqlalchemy")); assert distribution("cedarpy").read_text("direct_url.json") is None'
+"$base" -m examples.typed_policy.generate --check
+"$base" -m unittest examples.typed_policy.test_policy
+uv pip install --python "$asgi" "$wheel[asgi]"
+"$asgi" -Ic 'from importlib.util import find_spec; from cedarpy_asgi import require_authorization; assert find_spec("fastapi") is None and find_spec("sqlalchemy") is None'
+uv pip install --python "$asgi" pytest 'httpx2>=2,<3'
+"$asgi" -m pytest -q packages/web/tests packages/policy/tests
+uv pip install --python "$fastapi" "$wheel[fastapi]"
+"$fastapi" -Ic 'from cedarpy_asgi.fastapi import require_authorization'
+uv pip install --python "$fastapi" pytest flask django 'starlette>=1.2' 'httpx2>=2,<3'
+"$fastapi" -m pytest -q tests/frameworks packages/asgi/tests
+# The private reader needs a Cedar API not provided by the released binding.
+commit=bbdc622696f162a4e231d18337ae610c7d098c3a
+uv pip install --python "$sql" "$wheel" "cedarpy @ git+https://github.com/h0rv/cedar-py.git@$commit" \
+  'sqlalchemy[asyncio]>=2.0,<2.1' hypothesis aiosqlite 'psycopg[binary]>=3' pytest
+"$sql" -Ic 'import json, sys; from importlib.metadata import distribution; from importlib.util import find_spec; from cedarpy import tpe_authorize; assert find_spec("starlette") is None; assert json.loads(distribution("cedarpy").read_text("direct_url.json"))["vcs_info"]["commit_id"] == sys.argv[1]' "$commit"
+export PYTHONPATH="$PWD/packages/sqlalchemy/src"
+"$sql" -m pytest -q packages/sqlalchemy/tests --ignore=packages/sqlalchemy/tests/test_postgres.py
+"$sql" packages/sqlalchemy/examples/documents.py
+uv pip install --python "$sql" "$wheel[asgi]" flask 'httpx2>=2,<3'
+"$sql" -m pytest -q packages/web/tests packages/policy/tests tests/test_shared_policies.py tests/test_photos.py
+PYTHON="$sql" scripts/test-postgres packages/sqlalchemy/tests/test_enum_projection.py tests/test_composition.py
+for env in base asgi fastapi sql; do
+  uv pip check --python "$work/$env/bin/python"
+  uv pip freeze --python "$work/$env/bin/python" > "$out/$env-tested.txt"
+done
+(cd "$out" && shasum -a 256 *.whl *.tar.gz > SHA256SUMS)
+printf '\nVerified artifacts, hashes and tested dependency versions: %s\n' "$out"
